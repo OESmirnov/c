@@ -93,6 +93,16 @@ void clear_pass(context_t * context, task_t * task)
 	task->pswd[i]='\0';
 }
 
+void clear_task_index(task_t * task)
+{
+	int i=task->from;
+	for(i; i<task->to; i++)
+	{
+		task->index[i]=0;
+	}
+}
+
+
 void brute_iter(context_t * context, task_t * task)
 {
 	check(context, task);
@@ -103,7 +113,7 @@ void brute_iter(context_t * context, task_t * task)
 			int i=task->from;
 			while(task->index[i]==context->alph_len-1)
 			{
-				if(i==task->to - 1)
+				if(i==(task->to - 1))
 				{
 					return;
 				}
@@ -118,7 +128,7 @@ void brute_iter(context_t * context, task_t * task)
 		else
 		{
 			task->index[task->from]++;
-			task->pswd[task->from] = context->alph[task->index[task -> from]];
+			task->pswd[task->from] = context->alph[task->index[task->from]];
 			check(context, task);
 		}
 	}
@@ -195,6 +205,7 @@ int check(context_t * context, task_t * task) {
 			task_t * new_task=(task_t *) malloc(sizeof(task_t));
 			memcpy(new_task->pswd, task->pswd, context->pswd_len + 1);			
 			memcpy(new_task->index, task->index, context->pswd_len);
+			clear_task_index(new_task);
 			new_task->from = task->to;
 			new_task->to = context->pswd_len;
 			new_task->check_mode = CM_CHECK;
