@@ -1,5 +1,6 @@
 #include <stdio.h>
-#define _XOPEN_SOURCE 
+#define _GNU_SOURCE         
+#include <crypt.h>
 #include <unistd.h>
 #include <string.h>
 #include <semaphore.h>
@@ -10,7 +11,7 @@
 #define ALPH15 "abcdefghijklmno"
 #define ALPH26 "abcdefghijklmnopqrstuvwxyz"
 
-#define ALPH ALPH4
+#define ALPH ALPH26
 #define PSWD_LEN 4
 #define QUEUE_LENGTH 16
 
@@ -33,14 +34,14 @@ typedef struct context_t{
 	int pswd_len;
 	int alph_len;
 	char *hash;
-	int index[PSWD_LEN];
-	pswd_t pswd;
 	brute_mode_t brute_mode;
 	run_mode_t run_mode;
 } context_t;
 
-typedef struct  task_t {
+typedef struct  task_t {	
+	int index[PSWD_LEN];
 	pswd_t pswd;
+	int from, to;
 	char * hash;
 } task_t;
 
@@ -60,78 +61,90 @@ typedef struct  queue_t {
 	sem_t empty_sem;
 } queue_t;
 
+struct crypt_data { 
+      char keysched[16 * 8]; 
+      char sb0[32768]; 
+      char sb1[32768]; 
+      char sb2[32768]; 
+      char sb3[32768]; 
+      char crypt_3_buf[14]; 
+      char current_salt[2]; 
+      long int current_saltbits; 
+      int  direction, initialized; 
+};
+
 queue_t queue;
 result_t result={
 	.complete=0,
 };
 
-void clear_pass(context_t * context)
+void clear_pass(task_t * task)
 {
 	int i=0;
 	for(i; i<context->pswd_len; i++)
 	{
-		context->index[i]=0;
-		context->pswd[i]=context->alph[0];
+		task->index[i]=0;
+		task->pswd[i]=context->alph[0];
 	}
-	context->pswd[i]='\0';
+	task->pswd[i]='\0';
 }
 
-void brute_iter(context_t * context)
+void brute_iter(context_t * context, task_t * task, int from, int to)
 {
-	check(context);
+	check(task_t);
 	while(1)
 	{
-		if(context->index[0]==context->alph_len-1)
+		if(task->index[from]==context->alph_len-1)
 		{
-			int i=0;
-			while(context->index[i]==context->alph_len-1)
+			int i=from;
+			while(task->index[i]==context->alph_len-1)
 			{
-				if(i==context->pswd_len-1)
+				if(i==context->to)
 				{
 					return;
 				}
-				context->index[i]=0;
-				context->pswd[i]=context->alph[0];
+				task->index[i]=0;
+				task->pswd[i]=context->alph[0];
 				i++;
 			}
-			context->index[i]++;
-			context->pswd[i] = context->alph[context->index[i]];
-			check(context);
+			task->index[i]++;
+			task->pswd[i] = context->alph[task->index[i]];
+			check(task);
 		}
 		else
 		{
-			context->index[0]++;
-			context->pswd[0] = context->alph[context->index[0]];
-			check(context);
+			task->index[from]++;
+			task->pswd[from] = context->alph[task->index[from]];
+			check(task);
 		}
 	}
 }
 
-void brute_rec(context_t * context, int pos)
+void brute_rec(context_t * context, task_t * task, int from, int to)
 {
-	if(pos<0)
+	if(pos<from)
 	{
-		check(context);
+		check(task);
 		return;
 	}
 	int i;
 	for(i=0;i<context->alph_len;i++)
 	{
-		context->pswd[pos]=context->alph[i];
-		brute_rec(context, pos-1);
+		context->pswd[to]=context->alph[i];
+		brute_rec(context, to-1);
 	}
 }
 
-void brute_all(context_t * context) {
+void brute_all(context_t * context, task_t * task, int from, int to) {
 	switch(context->brute_mode)
 	{
 		case BM_REC :
 			printf("BRUTE_MODE = REC\n");
-			brute_rec(context, context->pswd_len-1);
+			brute_rec(context, task, from, to);
 			break;
 		case BM_ITER :
 			printf("BRUTE_MODE = ITER\n");
-			brute_iter(context);
+			brute_iter(context, task, from, to);
 			break;
 		default :
 			break;
@@ -170,7 +183,7 @@ void parse_args(context_t *context, int argc, char *argv[]) {
 	}
 }
 
-int check(context_t * context) {
+int check(context_t * context, task_t * task) {
 	switch (context->run_mode)
 	{
 		case RM_MULTI :
@@ -236,6 +249,8 @@ void producer(context_t * context){
 }
 
 void consumer() {
+	struct crypt_data data;
+	data.initialized=0;
 	while(1) {
 		task_t * current_task = queue_pop(&queue);
 		if(result.complete==1) {
@@ -244,8 +259,8 @@ void consumer() {
 		if(current_task==NULL) {
 			queue_push(&queue, current_task);
 			pthread_exit(NULL);			
-		}	
-		if(strcmp(crypt(current_task->pswd, current_task->hash), current_task->hash) == 0) {
+		}
+		if(strcmp(crypt_r(current_task->pswd, current_task->hash, &data), current_task->hash) == 0) {
 			memcpy(result.pswd, current_task->pswd, result.pswd_len + 1);
 			result.complete = 1;
 			free(current_task);
@@ -253,6 +268,23 @@ void consumer() {
 			pthread_exit(NULL);
 		}	
 		free(current_task);
+	}
+}
+
+void multi_brute(context_t * context) {
+	queue_init(&queue);
+	int threads_count = sysconf(_SC_NPROCESSORS_ONLN) + 1;	
+	pthread_t * threads;
+	threads = (pthread_t *) malloc(threads_count * sizeof(pthread_t));
+	pthread_create(&threads[0], NULL, &producer, context);
+	int i=1;
+	for(i; i<threads_count; i++)
+	{
+		pthread_create(&threads[i], NULL, &consumer, NULL);
+	}
+	for(i=0; i<threads_count; i++)
+	{
+		pthread_join(threads[i], NULL);
 	}
 }
 
@@ -275,20 +307,7 @@ int main(int argc, char *argv[])
 	switch (context.run_mode)
 	{
 		case RM_MULTI :
-			queue_init(&queue);
-			int threads_count = sysconf(_SC_NPROCESSORS_ONLN) + 1;	
-			pthread_t * threads;
-			threads = (pthread_t *) malloc(threads_count * sizeof(pthread_t));
-			pthread_create(&threads[0], NULL, &producer, &context);
-			int i=1;
-			for(i; i<threads_count; i++)
-			{
-				pthread_create(&threads[i], NULL, &consumer, NULL);
-			}
-			for(i=0; i<threads_count; i++)
-			{
-				pthread_join(threads[i], NULL);
-			}
+			multi_brute(&context);
 			break;
 		case RM_SINGLE :
 			brute_all(&context);
