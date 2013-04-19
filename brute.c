@@ -29,6 +29,11 @@ typedef enum run_mode_t{
 	RM_SINGLE,
 } run_mode_t;
 
+typedef enum check_mode_t{
+	CM_CHECK,
+	CM_PUSH,
+} check_mode_t;
+
 typedef struct context_t{
 	char *alph;
 	int pswd_len;
@@ -38,20 +43,19 @@ typedef struct context_t{
 	run_mode_t run_mode;
 } context_t;
 
-typedef struct  task_t {	
+typedef struct task_t {	
 	int index[PSWD_LEN];
 	pswd_t pswd;
 	int from, to;
-	char * hash;
+	check_mode_t check_mode;
 } task_t;
 
-typedef struct  result_t {
+typedef struct result_t {
 	pswd_t pswd;
 	int complete;
-	int pswd_len;
 } result_t;
 
-typedef struct  queue_t {
+typedef struct queue_t {
 	task_t * tasks[QUEUE_LENGTH];
 	int tail;
 	int head;
@@ -78,7 +82,7 @@ result_t result={
 	.complete=0,
 };
 
-void clear_pass(task_t * task)
+void clear_pass(context_t * context, task_t * task)
 {
 	int i=0;
 	for(i; i<context->pswd_len; i++)
@@ -89,17 +93,17 @@ void clear_pass(task_t * task)
 	task->pswd[i]='\0';
 }
 
-void brute_iter(context_t * context, task_t * task, int from, int to)
+void brute_iter(context_t * context, task_t * task)
 {
-	check(task_t);
+	check(context, task);
 	while(1)
 	{
-		if(task->index[from]==context->alph_len-1)
+		if(task->index[task->from]==context->alph_len-1)
 		{
-			int i=from;
+			int i=task->from;
 			while(task->index[i]==context->alph_len-1)
 			{
-				if(i==context->to)
+				if(i==task->to - 1)
 				{
 					return;
 				}
@@ -109,42 +113,40 @@ void brute_iter(context_t * context, task_t * task, int from, int to)
 			}
 			task->index[i]++;
 			task->pswd[i] = context->alph[task->index[i]];
-			check(task);
+			check(context, task);
 		}
 		else
 		{
-			task->index[from]++;
-			task->pswd[from] = context->alph[task->index[from]];
-			check(task);
+			task->index[task->from]++;
+			task->pswd[task->from] = context->alph[task->index[task -> from]];
+			check(context, task);
 		}
 	}
 }
 
-void brute_rec(context_t * context, task_t * task, int from, int to)
+void brute_rec(context_t * context, task_t * task, int pos)
 {
-	if(pos<from)
+	if(pos<task->from)
 	{
-		check(task);
+		check(context, task);
 		return;
 	}
 	int i;
 	for(i=0;i<context->alph_len;i++)
 	{
-		context->pswd[to]=context->alph[i];
-		brute_rec(context, to-1);
+		task->pswd[pos]=context->alph[i];
+		brute_rec(context, task, pos-1);
 	}
 }
 
-void brute_all(context_t * context, task_t * task, int from, int to) {
+void brute_all(context_t * context, task_t * task) {
 	switch(context->brute_mode)
 	{
 		case BM_REC :
-			printf("BRUTE_MODE = REC\n");
-			brute_rec(context, task, from, to);
+			brute_rec(context, task, task->to - 1);
 			break;
 		case BM_ITER :
-			printf("BRUTE_MODE = ITER\n");
-			brute_iter(context, task, from, to);
+			brute_iter(context, task);
 			break;
 		default :
 			break;
@@ -184,20 +186,23 @@ void parse_args(context_t *context, int argc, char *argv[]) {
 }
 
 int check(context_t * context, task_t * task) {
-	switch (context->run_mode)
+	switch (task->check_mode)
 	{
-		case RM_MULTI :
+		case CM_PUSH :
 			if(result.complete==1) {
 				pthread_exit(NULL);
 			}
-			task_t * new_task=(task_t *)malloc(sizeof(task_t));
-			memcpy(new_task->pswd, context->pswd, context->pswd_len + 1);
-			new_task->hash=context->hash;
+			task_t * new_task=(task_t *) malloc(sizeof(task_t));
+			memcpy(new_task->pswd, task->pswd, context->pswd_len + 1);			
+			memcpy(new_task->index, task->index, context->pswd_len);
+			new_task->from = task->to;
+			new_task->to = context->pswd_len;
+			new_task->check_mode = CM_CHECK;
 			queue_push(&queue, new_task);
 			break;
-		case RM_SINGLE :
-			if(strcmp(crypt(context->pswd, context->hash), context->hash) == 0) {
-				memcpy(result.pswd, context->pswd, result.pswd_len + 1);
+		case CM_CHECK :
+			if(strcmp(crypt(task->pswd, context->hash), context->hash) == 0) {
+				memcpy(result.pswd, task->pswd, context->pswd_len + 1);
 				result.complete = 1;
 			}
 			break;
@@ -241,14 +246,20 @@ task_t * queue_pop(queue_t * queue) {
 	return task;
 }
 
-void producer(context_t * context){
-	brute_all(context);
+void producer(context_t * context) {
+	task_t task={
+		.from = 0,
+		.to=context->pswd_len/2,
+		.check_mode=CM_PUSH,
+	};
+	clear_pass(context, &task);
+	brute_all(context, &task);
 	task_t * stop=NULL;
 	queue_push(&queue, stop);
 	pthread_exit(NULL);
 }
 
-void consumer() {
+void consumer(context_t * context) {
 	struct crypt_data data;
 	data.initialized=0;
 	while(1) {
@@ -260,13 +271,7 @@ void consumer() {
 			queue_push(&queue, current_task);
 			pthread_exit(NULL);			
 		}
-		if(strcmp(crypt_r(current_task->pswd, current_task->hash, &data), current_task->hash) == 0) {
-			memcpy(result.pswd, current_task->pswd, result.pswd_len + 1);
-			result.complete = 1;
-			free(current_task);
-			queue_pop(&queue);
-			pthread_exit(NULL);
-		}	
+		brute_all(context, current_task);
 		free(current_task);
 	}
 }
@@ -280,12 +285,22 @@ void multi_brute(context_t * context) {
 	int i=1;
 	for(i; i<threads_count; i++)
 	{
-		pthread_create(&threads[i], NULL, &consumer, NULL);
+		pthread_create(&threads[i], NULL, &consumer, context);
 	}
 	for(i=0; i<threads_count; i++)
 	{
 		pthread_join(threads[i], NULL);
 	}
+}
+
+void single_brute(context_t * context) {
+	task_t task={
+		.from = 0,
+		.to=context->pswd_len,
+		.check_mode=CM_CHECK,
+	};
+	clear_pass(context, &task);
+	brute_all(context, &task);
 }
 
 int main(int argc, char *argv[])
@@ -297,9 +312,7 @@ int main(int argc, char *argv[])
 		.brute_mode=BM_ITER,
 		.run_mode=RM_SINGLE,
 	};
-	result.pswd_len=PSWD_LEN;
 	parse_args(&context, argc, argv);
-	clear_pass(&context);
 	if(context.hash == '\0') {
 		printf("Hash not found\n");
 		return;
@@ -310,7 +323,7 @@ int main(int argc, char *argv[])
 			multi_brute(&context);
 			break;
 		case RM_SINGLE :
-			brute_all(&context);
+			single_brute(&context);
 			break;
 		default :
 			break;
