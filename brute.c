@@ -41,6 +41,8 @@ typedef struct context_t{
 	char *hash;
 	brute_mode_t brute_mode;
 	run_mode_t run_mode;
+	pswd_t pswd;
+	int complete;
 } context_t;
 
 typedef struct task_t {	
@@ -50,10 +52,10 @@ typedef struct task_t {
 	check_mode_t check_mode;
 } task_t;
 
-typedef struct result_t {
+/*typedef struct result_t {
 	pswd_t pswd;
 	int complete;
-} result_t;
+} result_t;*/
 
 typedef struct queue_t {
 	task_t * tasks[QUEUE_LENGTH];
@@ -78,19 +80,14 @@ struct crypt_data {
 };
 
 queue_t queue;
-result_t result={
+/*result_t result={
 	.complete=0,
-};
+};*/
 
 void clear_pass(context_t * context, task_t * task)
 {
-	int i=0;
-	for(i; i<context->pswd_len; i++)
-	{
-		task->index[i]=0;
-		task->pswd[i]=context->alph[0];
-	}
-	task->pswd[i]='\0';
+	memset(task->pswd, context->alph[0], context->pswd_len);
+	clear_task_index(task);
 }
 
 void clear_task_index(task_t * task)
@@ -108,6 +105,9 @@ void brute_iter(context_t * context, task_t * task)
 	check(context, task);
 	while(1)
 	{
+		if(context->run_mode == RM_SINGLE && context->complete == 1) {
+			return;
+		}
 		if(task->index[task->from]==context->alph_len-1)
 		{
 			int i=task->from;
@@ -136,6 +136,9 @@ void brute_iter(context_t * context, task_t * task)
 
 void brute_rec(context_t * context, task_t * task, int pos)
 {
+	if(context->run_mode == RM_SINGLE && context->complete == 1) {
+		return;
+	}
 	if(pos<task->from)
 	{
 		check(context, task);
@@ -199,22 +202,22 @@ int check(context_t * context, task_t * task) {
 	switch (task->check_mode)
 	{
 		case CM_PUSH :
-			if(result.complete==1) {
+			if(context->complete==1) {
 				pthread_exit(NULL);
 			}
 			task_t * new_task=(task_t *) malloc(sizeof(task_t));
-			memcpy(new_task->pswd, task->pswd, context->pswd_len + 1);			
+			memcpy(new_task->pswd, task->pswd, context->pswd_len + 1);
 			memcpy(new_task->index, task->index, context->pswd_len);
-			clear_task_index(new_task);
 			new_task->from = task->to;
 			new_task->to = context->pswd_len;
 			new_task->check_mode = CM_CHECK;
+			clear_task_index(new_task);
 			queue_push(&queue, new_task);
 			break;
 		case CM_CHECK :
 			if(strcmp(crypt(task->pswd, context->hash), context->hash) == 0) {
-				memcpy(result.pswd, task->pswd, context->pswd_len + 1);
-				result.complete = 1;
+				memcpy(context->pswd, task->pswd, context->pswd_len + 1);
+				context->complete = 1;
 			}
 			break;
 		default :
@@ -275,7 +278,7 @@ void consumer(context_t * context) {
 	data.initialized=0;
 	while(1) {
 		task_t * current_task = queue_pop(&queue);
-		if(result.complete==1) {
+		if(context->complete==1) {
 			pthread_exit(NULL);
 		}
 		if(current_task==NULL) {
@@ -322,6 +325,7 @@ int main(int argc, char *argv[])
 		.alph_len=strlen(ALPH),
 		.brute_mode=BM_ITER,
 		.run_mode=RM_SINGLE,
+		.complete=0,
 	};
 	parse_args(&context, argc, argv);
 	if(context.hash == '\0') {
@@ -339,8 +343,8 @@ int main(int argc, char *argv[])
 		default :
 			break;
 	}
-	if(result.complete == 1) {		
-		printf("Password: \"%s\"\n", result.pswd);
+	if(context.complete == 1) {		
+		printf("Password: \"%s\"\n", context.pswd);
 	} else {
 		printf("Pass not found\n");
 	}

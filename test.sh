@@ -5,6 +5,10 @@ BRUTE_PATH="/home/oleg/C/OS/brute"
 VAL1="csit"
 VAL2="aaaa"
 VAL3="zzzz"
+VAL4="*__*"
+
+PNF="Pass not found"
+HNF="Hash not found"
 
 
 echo ""
@@ -24,8 +28,15 @@ HASH3=$(htpasswd -nbd $VAL3 $VAL3)
 VAR3=$("${BRUTE_PATH}" -i -s "${HASH3:5}")
 PASS3="${VAR3:11:4}"
 echo "  "$VAR3
+echo " $VAL4 :"
+HASH4=$(htpasswd -nbd $VAL4 $VAL4)
+VAR4=$("${BRUTE_PATH}" -i -s "${HASH4:5}")
+echo "  "$VAR4
+echo " Empty hash :"
+VAR5=$("${BRUTE_PATH}" -i -s)
+echo "  "$VAR5
 
-if [[ $VAL1 = $PASS1 && $VAL2 = $PASS2 && $VAL3 = $PASS3 ]]; then
+if [[ $VAL1 = $PASS1 && $VAL2 = $PASS2 && $VAL3 = $PASS3 && $VAR4 = $PNF && $VAR5 = $HNF ]]; then
 	echo " -OK   The program works correctly"
 	SI=0
 else
@@ -52,8 +63,15 @@ HASH3=$(htpasswd -nbd $VAL3 $VAL3)
 VAR3=$("${BRUTE_PATH}" -r -s "${HASH3:5}")
 PASS3="${VAR3:11:4}"
 echo "  "$VAR3
+echo " $VAL4 :"
+HASH4=$(htpasswd -nbd $VAL4 $VAL4)
+VAR4=$("${BRUTE_PATH}" -r -s "${HASH4:5}")
+echo "  "$VAR4
+echo " Empty hash :"
+VAR5=$("${BRUTE_PATH}" -r -s)
+echo "  "$VAR5
 
-if [[ $VAL1 = $PASS1 && $VAL2 = $PASS2 && $VAL3 = $PASS3 ]]; then
+if [[ $VAL1 = $PASS1 && $VAL2 = $PASS2 && $VAL3 = $PASS3 && $VAR4 = $PNF && $VAR5 = $HNF ]]; then
 	echo " -OK   The program works correctly"
 	SR=0
 else
@@ -80,8 +98,15 @@ HASH3=$(htpasswd -nbd $VAL3 $VAL3)
 VAR3=$("${BRUTE_PATH}" -i -m "${HASH3:5}")
 PASS3="${VAR3:11:4}"
 echo "  "$VAR3
+echo " $VAL4 :"
+HASH4=$(htpasswd -nbd $VAL4 $VAL4)
+VAR4=$("${BRUTE_PATH}" -i -m "${HASH4:5}")
+echo "  "$VAR4
+echo " Empty hash :"
+VAR5=$("${BRUTE_PATH}" -i -m)
+echo "  "$VAR5
 
-if [[ $VAL1 = $PASS1 && $VAL2 = $PASS2 && $VAL3 = $PASS3 ]]; then
+if [[ $VAL1 = $PASS1 && $VAL2 = $PASS2 && $VAL3 = $PASS3 && $VAR4 = $PNF && $VAR5 = $HNF ]]; then
 	echo " -OK   The program works correctly"
 	MI=0
 else
@@ -108,8 +133,15 @@ HASH3=$(htpasswd -nbd $VAL3 $VAL3)
 VAR3=$("${BRUTE_PATH}" -r -m "${HASH3:5}")
 PASS3="${VAR3:11:4}"
 echo "  "$VAR3
+echo " $VAL4 :"
+HASH4=$(htpasswd -nbd $VAL4 $VAL4)
+VAR4=$("${BRUTE_PATH}" -r -m "${HASH4:5}")
+echo "  "$VAR4
+echo " Empty hash :"
+VAR5=$("${BRUTE_PATH}" -r -m)
+echo "  "$VAR5
 
-if [[ $VAL1 = $PASS1 && $VAL2 = $PASS2 && $VAL3 = $PASS3 ]]; then
+if [[ $VAL1 = $PASS1 && $VAL2 = $PASS2 && $VAL3 = $PASS3 && $VAR4 = $PNF && $VAR5 = $HNF ]]; then
 	echo " -OK   The program works correctly"
 	MR=0
 else
