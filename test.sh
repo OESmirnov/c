@@ -11,25 +11,26 @@ PNF="Pass not found"
 HNF="Hash not found"
 
 
-echo ""
+HASH1=$(htpasswd -nbd $VAL1 $VAL1)
+HASH2=$(htpasswd -nbd $VAL2 $VAL2)
+HASH3=$(htpasswd -nbd $VAL3 $VAL3)
+HASH4=$(htpasswd -nbd $VAL4 $VAL4)
+
+
 echo "SINGLETHREAD ITERATION :"
 echo " $VAL1 :"
-HASH1=$(htpasswd -nbd $VAL1 $VAL1)
 VAR1=$("${BRUTE_PATH}" -i -s "${HASH1:5}")
 PASS1="${VAR1:11:4}"
 echo "  "$VAR1
 echo " $VAL2 :"
-HASH2=$(htpasswd -nbd $VAL2 $VAL2)
 VAR2=$("${BRUTE_PATH}" -i -s "${HASH2:5}")
 PASS2="${VAR2:11:4}"
 echo "  "$VAR2
 echo " $VAL3 :"
-HASH3=$(htpasswd -nbd $VAL3 $VAL3)
 VAR3=$("${BRUTE_PATH}" -i -s "${HASH3:5}")
 PASS3="${VAR3:11:4}"
 echo "  "$VAR3
 echo " $VAL4 :"
-HASH4=$(htpasswd -nbd $VAL4 $VAL4)
 VAR4=$("${BRUTE_PATH}" -i -s "${HASH4:5}")
 echo "  "$VAR4
 echo " Empty hash :"
@@ -49,22 +50,18 @@ fi
 echo ""
 echo "SINGLETHREAD RECURSION :"
 echo " $VAL1 :"
-HASH1=$(htpasswd -nbd $VAL1 $VAL1)
 VAR1=$("${BRUTE_PATH}" -r -s "${HASH1:5}")
 PASS1="${VAR1:11:4}"
 echo "  "$VAR1
 echo " $VAL2 :"
-HASH2=$(htpasswd -nbd $VAL2 $VAL2)
 VAR2=$("${BRUTE_PATH}" -r -s "${HASH2:5}")
 PASS2="${VAR2:11:4}"
 echo "  "$VAR2
 echo " $VAL3 :"
-HASH3=$(htpasswd -nbd $VAL3 $VAL3)
 VAR3=$("${BRUTE_PATH}" -r -s "${HASH3:5}")
 PASS3="${VAR3:11:4}"
 echo "  "$VAR3
 echo " $VAL4 :"
-HASH4=$(htpasswd -nbd $VAL4 $VAL4)
 VAR4=$("${BRUTE_PATH}" -r -s "${HASH4:5}")
 echo "  "$VAR4
 echo " Empty hash :"
@@ -84,22 +81,18 @@ fi
 echo ""
 echo "MULTITHREAD ITERATION :"
 echo " $VAL1 :"
-HASH1=$(htpasswd -nbd $VAL1 $VAL1)
 VAR1=$("${BRUTE_PATH}" -i -m "${HASH1:5}")
 PASS1="${VAR1:11:4}"
 echo "  "$VAR1
 echo " $VAL2 :"
-HASH2=$(htpasswd -nbd $VAL2 $VAL2)
 VAR2=$("${BRUTE_PATH}" -i -m "${HASH2:5}")
 PASS2="${VAR2:11:4}"
 echo "  "$VAR2
 echo " $VAL3 :"
-HASH3=$(htpasswd -nbd $VAL3 $VAL3)
 VAR3=$("${BRUTE_PATH}" -i -m "${HASH3:5}")
 PASS3="${VAR3:11:4}"
 echo "  "$VAR3
 echo " $VAL4 :"
-HASH4=$(htpasswd -nbd $VAL4 $VAL4)
 VAR4=$("${BRUTE_PATH}" -i -m "${HASH4:5}")
 echo "  "$VAR4
 echo " Empty hash :"
@@ -119,22 +112,18 @@ fi
 echo ""
 echo "MULTITHREAD RECURSION :"
 echo " $VAL1 :"
-HASH1=$(htpasswd -nbd $VAL1 $VAL1)
 VAR1=$("${BRUTE_PATH}" -r -m "${HASH1:5}")
 PASS1="${VAR1:11:4}"
 echo "  "$VAR1
 echo " $VAL2 :"
-HASH2=$(htpasswd -nbd $VAL2 $VAL2)
 VAR2=$("${BRUTE_PATH}" -r -m "${HASH2:5}")
 PASS2="${VAR2:11:4}"
 echo "  "$VAR2
 echo " $VAL3 :"
-HASH3=$(htpasswd -nbd $VAL3 $VAL3)
 VAR3=$("${BRUTE_PATH}" -r -m "${HASH3:5}")
 PASS3="${VAR3:11:4}"
 echo "  "$VAR3
 echo " $VAL4 :"
-HASH4=$(htpasswd -nbd $VAL4 $VAL4)
 VAR4=$("${BRUTE_PATH}" -r -m "${HASH4:5}")
 echo "  "$VAR4
 echo " Empty hash :"
