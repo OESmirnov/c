@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BRUTE_PATH="/home/oleg/C/OS/brute"
+BRUTE_PATH="./brute"
 
 VAL1="csit"
 VAL2="aaaa"
