@@ -57,15 +57,15 @@ typedef struct queue_t {
 } queue_t;
 
 struct crypt_data {
-      char keysched[16 * 8];
-      char sb0[32768];
-      char sb1[32768];
-      char sb2[32768];
-      char sb3[32768];
-      char crypt_3_buf[14];
-      char current_salt[2];
-      long int current_saltbits;
-      int  direction, initialized;
+	char keysched[16 * 8];
+	char sb0[32768];
+	char sb1[32768];
+	char sb2[32768];
+	char sb3[32768];
+	char crypt_3_buf[14];
+	char current_salt[2];
+	long int current_saltbits;
+	int  direction, initialized;
 };
 
 queue_t queue;
@@ -87,53 +87,54 @@ void clear_task_index(task_t * task)
 
 
 void brute_iter(context_t * context, task_t * task,
-        int (* check)(context_t * context, task_t * task))
+		int (* check)(context_t * context, task_t * task))
 {
-    int i;
+	int i;
+	clear_task_index(task);
 	while(1)
-    {
-        if(check(context, task)==1)
-        {
-            break;
-        }
+	{
+		if(check(context, task)==1)
+		{
+			break;
+		}
 		for (i=task->to - 1;
-                i>=task->from && task->index[i]==context->alph_len - 1; i--)
-        {
-            task->index[i]=0;
-            task->pswd[i]=context->alph[0];
-        }
-        if(i < task->from)
-        {
-            break;
-        }
+				i>=task->from && task->index[i]==context->alph_len - 1; i--)
+		{
+			task->index[i]=0;
+			task->pswd[i]=context->alph[0];
+		}
+		if(i < task->from)
+		{
+			break;
+		}
 		task->index[i]++;
-		task->pswd[task->from] = context->alph[task->index[task->from]];
+		task->pswd[i] = context->alph[task->index[i]];
 	}
 }
 
 int brute_rec(context_t * context, task_t * task, int pos,
-        int (* check)(context_t * context, task_t * task))
+		int (* check)(context_t * context, task_t * task))
 {
-	if(pos<task->from)
-    {
+	if(pos>=task->to)
+	{
 		return check(context, task);
-    }
+	}
 	int i;
-	for(i=0;i<context->alph_len;i++)
+	for(i=context->alph_len-1;i>=0;i--)
 	{
 		task->pswd[pos]=context->alph[i];
-		if (brute_rec(context, task, pos-1, check) == 1)
-            break;
+		if (brute_rec(context, task, pos+1, check) == 1)
+			break;
 	}
 }
 
 void brute_all(context_t * context, task_t * task,
-        int (* check)(context_t * context, task_t * task))
+		int (* check)(context_t * context, task_t * task))
 {
 	switch(context->brute_mode)
 	{
 		case BM_REC :
-			brute_rec(context, task, task->to - 1, check);
+			brute_rec(context, task, task->from, check);
 			break;
 		case BM_ITER :
 			brute_iter(context, task, check);
@@ -177,25 +178,24 @@ void parse_args(context_t *context, int argc, char *argv[]) {
 
 int check_pswd(context_t * context, task_t * task) {
 	if(strcmp(crypt(task->pswd, context->hash), context->hash) == 0) {
-        memcpy(context->pswd, task->pswd, context->pswd_len + 1);
+		memcpy(context->pswd, task->pswd, context->pswd_len + 1);
 		context->complete = 1;
-        return 1;
+		return 1;
 	}
-    return 0;
+	return 0;
 }
 
 int push_task(context_t * context, task_t * task) {
-    if(context->complete==1) {
-       pthread_exit(NULL);
-    }
-    task_t * new_task=(task_t *) malloc(sizeof(task_t));
+	if(context->complete==1) {
+		pthread_exit(NULL);
+	}
+	task_t * new_task=(task_t *) malloc(sizeof(task_t));
 	memcpy(new_task->pswd, task->pswd, context->pswd_len + 1);
 	memcpy(new_task->index, task->index, context->pswd_len);
 	new_task->from = task->to;
 	new_task->to = context->pswd_len;
-	clear_task_index(new_task);
 	queue_push(&queue, new_task);
-    return 0;
+	return 0;
 }
 
 void queue_init(queue_t * queue) {
