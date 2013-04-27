@@ -120,12 +120,13 @@ int brute_rec(context_t * context, task_t * task, int pos,
 		return check(context, task);
 	}
 	int i;
-	for(i=context->alph_len-1;i>=0;i--)
+	for(i=0; i<context->alph_len; i++)
 	{
 		task->pswd[pos]=context->alph[i];
 		if (brute_rec(context, task, pos+1, check) == 1)
-			break;
+			return 1;
 	}
+	return 0;
 }
 
 void brute_all(context_t * context, task_t * task,
@@ -288,20 +289,27 @@ void single_brute(context_t * context) {
 	brute_all(context, &task, &check_pswd);
 }
 
+int context_init(context_t * context, int argc, char * argv[]) {
+	context->alph=ALPH;
+	context->pswd_len=PSWD_LEN;
+	context->alph_len=strlen(ALPH);
+	context->brute_mode=BM_ITER;
+	context->run_mode=RM_SINGLE;
+	context->complete=0;
+	parse_args(context, argc, argv);
+	if(context->hash[0] == '\0') {
+		printf("Hash not found\nSYNTAX:\n	%s",
+			"brute [ -i | -r ] [ -s | -m ] HASH\n");
+		return -1;
+	}
+	return 0;
+}
+
 int main(int argc, char *argv[])
 {
-	context_t context={
-		.alph=ALPH,
-		.pswd_len=PSWD_LEN,
-		.alph_len=strlen(ALPH),
-		.brute_mode=BM_ITER,
-		.run_mode=RM_SINGLE,
-		.complete=0,
-	};
-	parse_args(&context, argc, argv);
-	if(context.hash == '\0') {
-		printf("Hash not found\n");
-		return;
+	context_t context;
+	if(context_init(&context, argc, argv) == -1) {
+		return -1;
 	}
 	switch (context.run_mode)
 	{
