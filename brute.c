@@ -1,5 +1,5 @@
 #include <stdio.h>
-#define _GNU_SOURCE
+#define __USE_GNU
 #include <crypt.h>
 #include <unistd.h>
 #include <string.h>
@@ -15,6 +15,7 @@
 #define PSWD_LEN 4
 #define QUEUE_LENGTH 16
 
+#define HELP_STRING "SYNTAX:\n	brute [ -i | -r ] [ -s | -m ] HASH\n"
 #define array_size(x) (sizeof(x)/sizeof(x[0]))
 
 typedef char pswd_t[PSWD_LEN+1];
@@ -55,18 +56,6 @@ typedef struct queue_t {
 	sem_t full_sem;
 	sem_t empty_sem;
 } queue_t;
-
-struct crypt_data {
-	char keysched[16 * 8];
-	char sb0[32768];
-	char sb1[32768];
-	char sb2[32768];
-	char sb3[32768];
-	char crypt_3_buf[14];
-	char current_salt[2];
-	long int current_saltbits;
-	int  direction, initialized;
-};
 
 queue_t queue;
 
@@ -145,8 +134,8 @@ void brute_all(context_t * context, task_t * task,
 	}
 }
 
-void parse_args(context_t *context, int argc, char *argv[]) {
-	int current_getopt = getopt(argc, argv, "rism");
+int parse_args(context_t *context, int argc, char *argv[]) {
+	int current_getopt = getopt(argc, argv, "rismh");
 	while (current_getopt!=-1)
 	{
 		switch ( current_getopt )
@@ -163,17 +152,21 @@ void parse_args(context_t *context, int argc, char *argv[]) {
 			case 's' :
 				context->run_mode=RM_SINGLE;
 				break;
+			case 'h' :
+				return -1;
 			default :
 				break;
 		}
-		current_getopt = getopt(argc, argv, "rism");
+		current_getopt = getopt(argc, argv, "rismh");
 	}
 	if(optind>=0 && optind<argc) {
 		context->hash = argv[optind];
 		context->hash[strlen(context->hash)] = '\0';
+		return 0;
 	}
 	else {
-		context->hash = '\0';
+		printf("Hash not found\n");
+		return -1;
 	}
 }
 
@@ -263,6 +256,14 @@ void consumer(context_t * context) {
 	}
 }
 
+void threads_join(pthread_t * threads, int size) {
+	int i;
+	for(i=0; i<size; i++)
+	{
+		pthread_join(threads[i], NULL);
+	}
+}
+
 void multi_brute(context_t * context) {
 	queue_init(&queue);
 	int threads_count = sysconf(_SC_NPROCESSORS_ONLN) + 1;
@@ -274,10 +275,7 @@ void multi_brute(context_t * context) {
 	{
 		pthread_create(&threads[i], NULL, &consumer, context);
 	}
-	for(i=0; i<threads_count; i++)
-	{
-		pthread_join(threads[i], NULL);
-	}
+	threads_join(threads, threads_count);
 }
 
 void single_brute(context_t * context) {
@@ -296,10 +294,7 @@ int context_init(context_t * context, int argc, char * argv[]) {
 	context->brute_mode=BM_ITER;
 	context->run_mode=RM_SINGLE;
 	context->complete=0;
-	parse_args(context, argc, argv);
-	if(context->hash[0] == '\0') {
-		printf("Hash not found\nSYNTAX:\n	%s",
-			"brute [ -i | -r ] [ -s | -m ] HASH\n");
+	if (parse_args(context, argc, argv) != 0) {
 		return -1;
 	}
 	return 0;
@@ -309,6 +304,7 @@ int main(int argc, char *argv[])
 {
 	context_t context;
 	if(context_init(&context, argc, argv) == -1) {
+		printf(HELP_STRING);
 		return -1;
 	}
 	switch (context.run_mode)
