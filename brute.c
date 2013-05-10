@@ -60,7 +60,6 @@ typedef struct queue_t {
 typedef int (* task_handler_t)(context_t * context, task_t * task);
 
 queue_t queue;
-
 struct crypt_data data;
 
 void clear_pass(context_t * context, task_t * task)
@@ -190,7 +189,7 @@ int push_task(context_t * context, task_t * task) {
     task_t new_task = *task;
     new_task.from = task->to;
     new_task.to = context->pswd_len;
-    queue_push(&queue, new_task);
+    queue_push(&queue, &new_task);
     return 0;
 }
 
@@ -243,7 +242,6 @@ void producer(context_t * context) {
 }
 
 void consumer(context_t * context) {
-    data.initialized=0;
     while(1) {
         task_t current_task = queue_pop(&queue);
         if(context->complete==1) {
@@ -271,6 +269,7 @@ void multi_brute(context_t * context) {
     pthread_t * threads;
     threads = (pthread_t *) malloc(threads_count * sizeof(pthread_t));
     pthread_create(&threads[0], NULL, &producer, context);
+    data.initialized=0;
     int i=1;
     for(i; i<threads_count; i++)
     {
