@@ -60,7 +60,6 @@ typedef struct queue_t {
 typedef int (* task_handler_t)(context_t * context, task_t * task);
 
 queue_t queue;
-struct crypt_data data;
 
 void clear_pass(context_t * context, task_t * task)
 {
@@ -105,24 +104,24 @@ void brute_iter(context_t * context, task_t * task,
 }
 
 int brute_rec(context_t * context, task_t * task, int pos,
-        task_handler_t check)
+        task_handler_t check, crypt_data * data)
 {
     if(pos>=task->to)
     {
-        return check(context, task);
+        return check(context, task, data);
     }
     int i;
     for(i=0; i<context->alph_len; i++)
     {
         task->pswd[pos]=context->alph[i];
-        if (brute_rec(context, task, pos+1, check) == 1)
+        if (brute_rec(context, task, pos+1, check, data) == 1)
             return 1;
     }
     return 0;
 }
 
 void brute_all(context_t * context, task_t * task,
-        task_handler_t check)
+        task_handler_t check, crypt_data * data)
 {
     switch(context->brute_mode)
     {
@@ -242,6 +241,9 @@ void producer(context_t * context) {
 }
 
 void consumer(context_t * context) {
+    struct crypt_data data={
+        .initialized=0,
+    };
     while(1) {
         task_t current_task = queue_pop(&queue);
         if(context->complete==1) {
@@ -269,7 +271,6 @@ void multi_brute(context_t * context) {
     pthread_t * threads;
     threads = (pthread_t *) malloc(threads_count * sizeof(pthread_t));
     pthread_create(&threads[0], NULL, &producer, context);
-    data.initialized=0;
     int i=1;
     for(i; i<threads_count; i++)
     {
@@ -279,12 +280,15 @@ void multi_brute(context_t * context) {
 }
 
 void single_brute(context_t * context) {
+    struct crypt_data data={
+        .initialized=0,
+    };
     task_t task={
         .from = 0,
         .to=context->pswd_len,
     };
     clear_pass(context, &task);
-    brute_all(context, &task, &check_pswd);
+    brute_all(context, &task, &check_pswd, &data);
 }
 
 int main(int argc, char *argv[])
