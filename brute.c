@@ -57,7 +57,8 @@ typedef struct queue_t {
     sem_t empty_sem;
 } queue_t;
 
-typedef int (* task_handler_t)(context_t * context, task_t * task);
+typedef int (* task_handler_t)(context_t * context, task_t * task,
+        struct crypt_data * data);
 
 queue_t queue;
 
@@ -78,13 +79,13 @@ void clear_task_index(task_t * task)
 
 
 void brute_iter(context_t * context, task_t * task,
-        task_handler_t check)
+        task_handler_t check, struct crypt_data * data)
 {
     int i;
     clear_task_index(task);
     while(1)
     {
-        if(check(context, task)==1)
+        if(check(context, task, data)==1)
         {
             break;
         }
@@ -104,7 +105,7 @@ void brute_iter(context_t * context, task_t * task,
 }
 
 int brute_rec(context_t * context, task_t * task, int pos,
-        task_handler_t check, crypt_data * data)
+        task_handler_t check, struct crypt_data * data)
 {
     if(pos>=task->to)
     {
@@ -121,15 +122,15 @@ int brute_rec(context_t * context, task_t * task, int pos,
 }
 
 void brute_all(context_t * context, task_t * task,
-        task_handler_t check, crypt_data * data)
+        task_handler_t check, struct crypt_data * data)
 {
     switch(context->brute_mode)
     {
         case BM_REC :
-            brute_rec(context, task, task->from, check);
+            brute_rec(context, task, task->from, check, data);
             break;
         case BM_ITER :
-            brute_iter(context, task, check);
+            brute_iter(context, task, check, data);
             break;
         default :
             break;
@@ -172,8 +173,8 @@ int parse_args(context_t *context, int argc, char *argv[]) {
     }
 }
 
-int check_pswd(context_t * context, task_t * task) {
-    if(strcmp(crypt_r(task->pswd, context->hash, &data), context->hash) == 0) {
+int check_pswd(context_t * context, task_t * task, struct crypt_data * data) {
+    if(strcmp(crypt_r(task->pswd, context->hash, data), context->hash) == 0) {
         memcpy(context->pswd, task->pswd, context->pswd_len + 1);
         context->complete = 1;
         return 1;
@@ -181,7 +182,7 @@ int check_pswd(context_t * context, task_t * task) {
     return 0;
 }
 
-int push_task(context_t * context, task_t * task) {
+int push_task(context_t * context, task_t * task, struct crypt_data * data) {
     if(context->complete==1) {
         pthread_exit(NULL);
     }
@@ -233,7 +234,7 @@ void producer(context_t * context) {
         .to=context->pswd_len/2,
     };
     clear_pass(context, &task);
-    brute_all(context, &task, &push_task);
+    brute_all(context, &task, &push_task, NULL);
     task_t stop;
     stop.to = -1;
     queue_push(&queue, &stop);
@@ -253,7 +254,7 @@ void consumer(context_t * context) {
             queue_push(&queue, &current_task);
             pthread_exit(NULL);
         }
-        brute_all(context, &current_task, &check_pswd);
+        brute_all(context, &current_task, &check_pswd, &data);
     }
 }
 
