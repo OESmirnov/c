@@ -6,9 +6,9 @@ let "BOOL += $?"
 tests/single_rec_test.sh
 let "BOOL += $?"
 if [[ $BOOL = 0 ]]; then
-	echo "STATUS   :  THE PROGRAMM WORKS CORRECTLY"
+	echo "STATUS   :  THE PROGRAM WORKS CORRECTLY"
 	exit 0
 else
-	echo "STATUS   :  THE PROGRAMM WORKS UNCORRECTLY"
+	echo "STATUS   :  THE PROGRAM WORKS UNCORRECTLY"
 	exit 1
 fi
