@@ -13,7 +13,6 @@ check() {
 	if [[ $RES = "${PASS}" ]]; then
 		return 0;
 	else
-		echo "$RES"
 		return 1;
 	fi
 }
