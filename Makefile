@@ -1,3 +1,3 @@
 all:brute
-CFLAGS=-Wall -w -g -O2 -o brute
-LDLIBS=-pthread -lcrypt
+CFLAGS+=-Wall -Werror -g -O2
+LDLIBS+=-pthread -lcrypt
