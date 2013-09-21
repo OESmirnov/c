@@ -3,6 +3,7 @@
 #include <crypt.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <stdlib.h>
 #include <string.h>
 #include <semaphore.h>
 #include <pthread.h>
@@ -13,8 +14,9 @@
 #define ALPH26 "abcdefghijklmnopqrstuvwxyz"
 
 #define ALPH ALPH26
-#define PSWD_LEN 4
-#define QUEUE_LENGTH 16
+#define PSWD_LEN (4)
+#define QUEUE_LENGTH (8)
+#define PREFIX_SIZE (2)
 
 #define HELP_STRING "SYNTAX:\n	brute [ -i | -r ] [ -s | -m ] HASH\n"
 #define ARRAY_SIZE(x) (sizeof (x) / sizeof (x[0]))
@@ -118,8 +120,8 @@ void queue_pop (queue_t * queue, task_t * task)
   sem_post (&queue->full_sem);
 }
 
-void brute_iter (context_t * context, task_t * task,
-        task_handler_t handler, struct crypt_data * data)
+int brute_iter (context_t * context, task_t * task,
+	    task_handler_t handler, struct crypt_data * data)
 {
   int i;
   clear_task_index (task);
@@ -142,6 +144,7 @@ void brute_iter (context_t * context, task_t * task,
       task->index[i]++;
       task->pswd[i] = context->alph[task->index[i]];
     }
+  return (0);
 }
 
 int brute_rec (context_t * context, task_t * task, int pos,
@@ -226,7 +229,7 @@ int check_pswd (context_t * context, task_t * task, struct crypt_data * data)
 {
   if (strcmp (crypt_r (task->pswd, context->hash, data), context->hash) == 0)
     {
-      memcpy(context->pswd, task->pswd, context->pswd_len + 1);
+      memcpy (context->pswd, task->pswd, context->pswd_len + 1);
       context->complete = !0;
       return !0;
     }
@@ -237,23 +240,23 @@ int push_task (context_t * context, task_t * task, struct crypt_data * data)
 {
   if (context->complete)
     {
-      return !0;
+      return 1;
     }
   task_t new_task = *task;
   new_task.from = 0;
   new_task.to = task->from;
   queue_push (&context->queue, &new_task);
-  return 0;
+  return (context->complete);
 }
 
 void producer (context_t * context)
 {
   task_t task = {
-    .from = context->pswd_len - 2,
+    .from = context->pswd_len - PREFIX_SIZE,
     .to = context->pswd_len,
   };
   clear_pass (context, &task);
-  brute_all (context, &task, &push_task, NULL);
+  brute_all (context, &task, push_task, NULL);
   task_t stop;
   stop.to = -1;
   queue_push (&context->queue, &stop);
@@ -270,7 +273,7 @@ void consumer (context_t * context)
       queue_pop (&context->queue, &current_task);
       if (current_task.to == -1) {
 	queue_push (&context->queue, &current_task);
-	pthread_exit(NULL);
+	return;
       }
       brute_all (context, &current_task, &check_pswd, &data);
     }
@@ -328,11 +331,13 @@ int main (int argc, char *argv[])
     .run_mode = RM_SINGLE,
     .complete = 0,
   };
+  
   if (!parse_args (&context, argc, argv))
     {
       printf (HELP_STRING);
-      return -1;
+      return EXIT_FAILURE;
     }
+
   switch (context.run_mode)
     {
     case RM_MULTI :
@@ -352,5 +357,5 @@ int main (int argc, char *argv[])
     {
       printf ("Pass not found\n");
     }
-  return 0;
+  return EXIT_SUCCESS;
 }
