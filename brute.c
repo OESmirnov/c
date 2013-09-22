@@ -238,10 +238,6 @@ int check_pswd (context_t * context, task_t * task, struct crypt_data * data)
 
 int push_task (context_t * context, task_t * task, struct crypt_data * data)
 {
-  if (context->complete)
-    {
-      return 1;
-    }
   task_t new_task = *task;
   new_task.from = 0;
   new_task.to = task->from;
