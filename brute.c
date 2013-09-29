@@ -248,7 +248,7 @@ int push_task (context_t * context, task_t * task, struct crypt_data * data)
 void producer (context_t * context)
 {
   task_t task = {
-    .from = context->pswd_len - PREFIX_SIZE,
+    .from = PREFIX_SIZE + 1,
     .to = context->pswd_len,
   };
   clear_pass (context, &task);
@@ -345,7 +345,7 @@ int main (int argc, char *argv[])
     default :
       break;
     }
-  if(context.complete == 1)
+  if (context.complete)
     {
       printf ("Password: \"%s\"\n", context.pswd);
     }
