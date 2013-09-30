@@ -248,7 +248,7 @@ int push_task (context_t * context, task_t * task, struct crypt_data * data)
 void producer (context_t * context)
 {
   task_t task = {
-    .from = PREFIX_SIZE + 1,
+    .from = PREFIX_SIZE,
     .to = context->pswd_len,
   };
   clear_pass (context, &task);
