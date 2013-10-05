@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <pthread.h>
@@ -68,6 +69,8 @@ int main (int argc, char ** argv)
       printf("Socket error\n");
       return EXIT_FAILURE;
     }
+
+  signal (SIGPIPE, SIG_IGN);
 
   struct sockaddr_in serv_addr;
   memset (&serv_addr, 0, sizeof (serv_addr));

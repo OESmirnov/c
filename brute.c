@@ -21,6 +21,38 @@
 #define HELP_STRING "SYNTAX:\n	brute [ -i | -r ] [ -s | -m ] HASH\n"
 #define ARRAY_SIZE(x) (sizeof (x) / sizeof (x[0]))
 
+#define SEND_JOB_TMPL "<msg>\n"			\
+  "<type>MT_SEND_JOB</type>\n"			\
+  "<args>\n"					\
+  "<job>\n"					\
+  "<job>\n"					\
+  "<password>%s </password>\n"			\
+  "<id>%d</id>\n"				\
+  "<idx>%d</idx>\n"				\
+  "<hash>%s </hash>\n"				\
+  "<alphabet>%s </alphabet>\n"			\
+  "<from>%d</from>\n"				\
+  "<to>%d</to>\n"				\
+  "</job>\n"					\
+  "</job>\n"					\
+  "</args>\n"					\
+  "</msg>\n"
+
+#define REPORT_RESULT_TMPL "<msg>\n"		\
+  "<type>MT_REPORT_RESULTS</type>\n"		\
+  "<args>\n"					\
+  "<result>\n"					\
+  "<result>\n"					\
+  "<password/>\n"				\
+  "<id>%d</id>\n"				\
+  "<idx>%d</idx>\n"				\
+  "<password_found>%d</password_found>\n"	\
+  "<mutex/>\n"					\
+  "</result>\n"					\
+  "</result>\n"					\
+  "</args>\n"					\
+  "</msg>\n"
+
 typedef char pswd_t[PSWD_LEN + 1];
 
 typedef enum brute_mode_t
@@ -37,7 +69,7 @@ typedef enum run_mode_t
 
 typedef struct task_t
 {
-  int index[PSWD_LEN];
+  //int index[PSWD_LEN];
   pswd_t pswd;
   int from, to;
 } task_t;
@@ -69,12 +101,12 @@ typedef struct context_t
 typedef int (* task_handler_t)(context_t * context, task_t * task,
         struct crypt_data * data);
 
-void clear_task_index(task_t * task)
+void clear_task_index (task_t * task)
 {
   int i;
   for (i = task->from; i < task->to; i++)
     {
-      task->index[i] = 0;
+      //task->index[i] = 0;
     }
 }
 
@@ -84,7 +116,7 @@ void clear_pass (context_t * context, task_t * task)
   clear_task_index (task);
 }
 
-void queue_init(queue_t * queue)
+void queue_init (queue_t * queue)
 {
   queue->head = 0;
   queue->tail = 0;
@@ -124,7 +156,9 @@ int brute_iter (context_t * context, task_t * task,
 	    task_handler_t handler, struct crypt_data * data)
 {
   int i;
-  clear_task_index (task);
+  int index[PSWD_LEN];
+  memset (index, 0, PSWD_LEN);
+  //clear_task_index (task);
   while (!0)
     {
       if (handler (context, task, data))
@@ -132,17 +166,17 @@ int brute_iter (context_t * context, task_t * task,
 	  break;
 	}
       for (i = task->to - 1;
-	   (i >= task->from) && (task->index[i] == context->alph_len - 1); i--)
+	   (i >= task->from) && (index[i] == context->alph_len - 1); i--)
 	{
-	  task->index[i] = 0;
+	  index[i] = 0;
 	  task->pswd[i] = context->alph[0];
 	}
       if (i < task->from)
 	{
 	  break;
 	}
-      task->index[i]++;
-      task->pswd[i] = context->alph[task->index[i]];
+      index[i]++;
+      task->pswd[i] = context->alph[index[i]];
     }
   return (0);
 }
