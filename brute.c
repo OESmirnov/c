@@ -48,7 +48,7 @@
   "<args>\n"					\
   "<result>\n"					\
   "<result>\n"					\
-  "<password/>\n"				\
+  "<password>%s </passwdord>\n"		       	\
   "<id>%d</id>\n"				\
   "<idx>%d</idx>\n"				\
   "<password_found>%d</password_found>\n"	\
@@ -108,8 +108,26 @@ typedef struct med_context_t
 {
   context_t * context;
   int fd;
-  pthread_mutex_t mutex;
+  pthread_mutex_t * context_mutex;
+  pthread_mutex_t * closer_mutex;
+  pthread_cond_t * closer_cond;
 } med_context_t;
+
+typedef struct accepter_context_t
+{  
+  int sock;
+  pthread_mutex_t * context_mutex;
+  pthread_mutex_t * closer_mutex;
+  pthread_cond_t * closer_cond;
+}
+
+typedef struct closer_context_t
+{
+  pthread_t * accepter;
+  pthread_t * producer;
+  pthread_cond_t * closer_cond;
+  pthread_mutex_t * closer_mutex;
+} closer_context_t;  
 
 typedef int (* task_handler_t)(context_t * context, task_t * task,
         struct crypt_data * data);
@@ -362,7 +380,7 @@ void single_brute (context_t * context)
 void mediator (med_context_t * context)
 {
   med_context_t med_context = *context;
-  pthread_mutex_unlock (&context->mutex);
+  pthread_mutex_unlock (context->context_mutex);
   queue_t * queue = &med_context.context->queue;
   char * hash = med_context.context->hash;
   char * alph = med_context.context->alph;
@@ -371,39 +389,41 @@ void mediator (med_context_t * context)
     {
       task_t task;
       queue_pop (queue, &task);
-      if (task.to == -1) {
-	return;
-      }
+      if (task.to == -1)
+	{
+	  return;
+	}
       char task_string [1023];
       uint32_t size = sprintf (task_string, SEND_JOB_TMPL, task.pswd, 0, 0,
 			       hash, alph, task.from, task.to) + 1;
       if (write (fd, &size, sizeof (size)) < 0 ||
 	  write (fd, &task_string, size) < 0)
 	{
-	  printf ("Write error\n");
+	  fprintf (stderr, "Write error\n");
 	  queue_push (queue, &task);
 	  return;
 	}
       uint32_t reply_size;
-      if (read (fd, &reply_size, sizeof (uint32_t)))
+      if (read (fd, &reply_size, sizeof (uint32_t)) < 0)
 	{
-	  printf ("Read error\n");
+	  fprintf (stderr, "Read error\n");
 	  queue_push (queue, &task);
 	  return;
 	}
       char reply [reply_size];
       if (read (fd, reply, reply_size) < 0)
 	{
-	  printf ("Read error\n");
+	  fprintf (stderr, "Read error\n");
 	  queue_push (queue, &task);
 	  return;
 	}
       int result;
       int id, idx;
-      sscanf (reply, REPORT_RESULT_TMPL, &id, &idx, &result);
+      char password [PSWD_LEN + 1];
+      sscanf (reply, REPORT_RESULT_TMPL, password, &id, &idx, &result);
       if (result)
 	{
-	  // Пароль найден...
+	  memcpy (med_context.context->pswd, password, med_context.context->pswd_len);
 	  med_context.context->complete = !0;
 	  return;
 	}
@@ -421,6 +441,34 @@ void * mediator_wrapper (void * arg)
   return (NULL);
 }
 
+void * accepter (void * arg)
+{
+  accepter_context_t accepter_context = *((accepter_context_t) arg);
+  pthread_mutex_unlock (&accepter_context.context_mutex);
+  int sock = accepter_context.sock;
+  for (;;)
+    {
+      int fd = accept (sock, NULL, NULL);
+      if (fd < 0)
+	{
+	  fprintf (stderr, "Accept error\n");
+	  return;
+	}
+
+      pthread_t mediator;
+      med_context_t * med_context = malloc (sizeof (med_context_t));
+      med_context->context = context;
+      med_context->fd = fd;
+      med_context->closer_mutex = accepter_context.closer_mutex;
+      med_context->closer_cond = accepter_context.closer_cond;
+      pthread_mutex_init (med_context->context_mutex, NULL);
+      pthread_mutex_lock (med_context->context_mutex);
+      pthread_create (&mediator, NULL, (void *) mediator, (void *) med_context);
+      pthread_mutex_lock (&med_context->context_mutex);
+      free (med_context);
+    }
+}
+
 void serv_producer (context_t * context, int sock)
 {
   struct sockaddr_in serv_addr;
@@ -430,44 +478,37 @@ void serv_producer (context_t * context, int sock)
   serv_addr.sin_port = htons (PORT);
   if (bind (sock, (struct sockaddr *) &serv_addr, sizeof (serv_addr)) < 0)
     {
-      printf ("Bind error\n");
+      fprintf (stderr, "Bind error\n");
       return;
     }
   if (listen (sock, 5) < 0)
     {
-      printf ("Listen error\n");
+      fprintf (stderr, "Listen error\n");
       return;
     }
   
   queue_init (&context->queue);
-  pthread_t prod;
+  pthread_t prod, accepter, closer;
   pthread_create (&prod, NULL, (void *) producer, (void *) context);
-  
-  for (;;)
-    {
-      // ↓↓↓Тут должно быть условие прекращения работы сервера↓↓↓
-      if (context->complete /*|| producer закончил работу и очередь пуста*/)
-	{
-	  // Пароль найден...
-	  return;
-	}
-      int fd = accept (sock, NULL, NULL);
-      if (fd < 0)
-	{
-	  printf ("Accept error\n");
-	  return;
-	}
 
-      pthread_t med;
-      med_context_t * med_context = malloc (sizeof (med_context_t));
-      med_context->context = context;
-      med_context->fd = fd;
-      pthread_mutex_init (&med_context->mutex, NULL);
-      pthread_mutex_lock (&med_context->mutex);
-      pthread_create (&med, NULL, (void *) mediator, (void *) med_context);
-      pthread_mutex_lock (&med_context->mutex);
-      free (med_context);
-    }
+  pthread_mutex_t close_mutex;
+  pthread_mutex_init (&close_mutex, NULL);
+  pthread_cond_t close_cond;
+  pthread_cond_init (&close_cond, NULL);
+
+  accepter_context_t *  accepter_context = malloc (sizeof (accepter_context_t));
+  accepter_context->sock = sock;
+  accepter_context->close_mutex = close_mutex;
+  accepter_context->close_cond = close_cond;
+  pthread_mutex_init (accepter_context.context_mutex, NULL);
+  pthread_mutex_lock (accepter_context.context_mutex);
+  pthread_create (&accepter, NULL, accepter, accepter_context);
+  pthread_mutex_lock (accepter_context.context_mutex);
+  free (accepter_context);
+
+  pthread_cond_wait (&close_cond, &close_mutex);
+  //Убить треды
+  
 }
 
 void server (context_t * context)
@@ -475,7 +516,7 @@ void server (context_t * context)
   int sock = socket (PF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (sock < 0)
     {
-      printf ("Socket error\n");
+      fprintf (stderr, "Socket error\n");
       return;
     }
 
@@ -494,7 +535,7 @@ void cl_consumer (context_t * context, int fd)
 
   if (connect (fd, (struct sockaddr *) &serv_addr, sizeof (serv_addr)) < 0)
     {
-      printf ("Connect error\n");
+      fprintf (stderr, "Connect error\n");
       return;
     }
   for (;;)
@@ -502,13 +543,13 @@ void cl_consumer (context_t * context, int fd)
       uint32_t size;
       if (read (fd, &size, sizeof (uint32_t)) < 0)
 	{
-	  printf ("Read error\n");
+	  fprintf (stderr, "Read error\n");
 	  return;
 	}
       char task_string [size];
       if (read (fd, task_string, size) < 0)
 	{
-	  printf ("Read error\n");
+	  fprintf (stderr, "Read error\n");
 	  return;
 	}
       task_t task;
@@ -517,8 +558,8 @@ void cl_consumer (context_t * context, int fd)
       char alph [127];
       sscanf (task_string, SEND_JOB_TMPL, task.pswd, &id, &idx, hash,
 	      alph, &task.from, &task.to);
-      memcpy (alph, context->alph, strlen (alph));
-      memcpy (hash, context->hash, strlen (hash));
+      context->alph = alph;
+      context->hash = hash;
 
       struct crypt_data data = {
 	.initialized = 0,
@@ -530,17 +571,13 @@ void cl_consumer (context_t * context, int fd)
   
       char reply [1023];
   
-      uint32_t reply_size = sprintf (reply, REPORT_RESULT_TMPL, 0, 0, result) + 1;
+      uint32_t reply_size = sprintf (reply, REPORT_RESULT_TMPL,
+				     context->pswd, 0, 0, result) + 1;
       if (write (fd, &reply_size, sizeof (reply_size)) < 0 ||
 	  write (fd, reply, reply_size) < 0)
 	{
-	  printf ("Write error\n");
+	  fprintf (stderr, "Write error\n");
 	  return;
-	}
-      
-      if (result)
-	{
-	  printf ("Password: \"%s\"\n", context->pswd);
 	}
     }
 }
@@ -550,7 +587,7 @@ void client (context_t * context)
   int sock = socket (PF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (sock < 0)
     {
-      printf ("Socket error\n");
+      fprintf (stderr, "Socket error\n");
       return;
     }
 
@@ -593,7 +630,7 @@ int main (int argc, char *argv[])
       break;
     case RM_CLIENT :
       client (&context);
-      break;
+      return EXIT_SUCCESS;
     default :
       break;
     }
