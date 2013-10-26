@@ -23,39 +23,39 @@
 #define QUEUE_LENGTH (8)
 #define PREFIX_SIZE (2)
 
-#define HELP_STRING "SYNTAX:\n	brute [ -i | -r ] [ -s | -m ] HASH\n"
+#define HELP_STRING "SYNTAX:\n        brute [ -i | -r ] [ -s | -m ] HASH\n"
 #define PORT (54321)
 
-#define SEND_JOB_TMPL "<msg>\n"			\
-  "<type>MT_SEND_JOB</type>\n"			\
-  "<args>\n"					\
-  "<job>\n"					\
-  "<job>\n"					\
-  "<password>%s </password>\n"			\
-  "<id>%d</id>\n"				\
-  "<idx>%d</idx>\n"				\
-  "<hash>%s </hash>\n"				\
-  "<alphabet>%s </alphabet>\n"			\
-  "<from>%d</from>\n"				\
-  "<to>%d</to>\n"				\
-  "</job>\n"					\
-  "</job>\n"					\
-  "</args>\n"					\
+#define SEND_JOB_TMPL "<msg>\n"                        \
+  "<type>MT_SEND_JOB</type>\n"                        \
+  "<args>\n"                                        \
+  "<job>\n"                                        \
+  "<job>\n"                                        \
+  "<password>%s </password>\n"                        \
+  "<id>%d</id>\n"                                \
+  "<idx>%d</idx>\n"                                \
+  "<hash>%s </hash>\n"                                \
+  "<alphabet>%s </alphabet>\n"                        \
+  "<from>%d</from>\n"                                \
+  "<to>%d</to>\n"                                \
+  "</job>\n"                                        \
+  "</job>\n"                                        \
+  "</args>\n"                                        \
   "</msg>\n"
 
-#define REPORT_RESULT_TMPL "<msg>\n"		\
-  "<type>MT_REPORT_RESULTS</type>\n"		\
-  "<args>\n"					\
-  "<result>\n"					\
-  "<result>\n"					\
-  "<password>%s </passwdord>\n"		       	\
-  "<id>%d</id>\n"				\
-  "<idx>%d</idx>\n"				\
-  "<password_found>%d</password_found>\n"	\
-  "<mutex/>\n"					\
-  "</result>\n"					\
-  "</result>\n"					\
-  "</args>\n"					\
+#define REPORT_RESULT_TMPL "<msg>\n"                \
+  "<type>MT_REPORT_RESULTS</type>\n"                \
+  "<args>\n"                                        \
+  "<result>\n"                                        \
+  "<result>\n"                                        \
+  "<password>%s </passwdord>\n"                               \
+  "<id>%d</id>\n"                                \
+  "<idx>%d</idx>\n"                                \
+  "<password_found>%d</password_found>\n"        \
+  "<mutex/>\n"                                        \
+  "</result>\n"                                        \
+  "</result>\n"                                        \
+  "</args>\n"                                        \
   "</msg>\n"
 
 typedef char pswd_t[PSWD_LEN + 1];
@@ -85,6 +85,7 @@ typedef struct queue_t
   task_t tasks[QUEUE_LENGTH];
   int tail;
   int head;
+  int closed;
   pthread_mutex_t tail_mutex;
   pthread_mutex_t head_mutex;
   sem_t full_sem;
@@ -109,25 +110,18 @@ typedef struct med_context_t
   context_t * context;
   int fd;
   pthread_mutex_t * context_mutex;
-  pthread_mutex_t * closer_mutex;
-  pthread_cond_t * closer_cond;
+  pthread_mutex_t * close_mutex;
+  pthread_cond_t * close_cond;
 } med_context_t;
 
 typedef struct accepter_context_t
 {  
   int sock;
   pthread_mutex_t * context_mutex;
-  pthread_mutex_t * closer_mutex;
-  pthread_cond_t * closer_cond;
-}
-
-typedef struct closer_context_t
-{
-  pthread_t * accepter;
-  pthread_t * producer;
-  pthread_cond_t * closer_cond;
-  pthread_mutex_t * closer_mutex;
-} closer_context_t;  
+  pthread_mutex_t * close_mutex;
+  pthread_cond_t * close_cond;
+  context_t * context;
+} accepter_context_t;
 
 typedef int (* task_handler_t)(context_t * context, task_t * task,
         struct crypt_data * data);
@@ -139,6 +133,7 @@ void clear_pass (context_t * context, task_t * task)
 
 void queue_init (queue_t * queue)
 {
+  queue->closed = 0;
   queue->head = 0;
   queue->tail = 0;
   sem_init (&queue->full_sem, 0, QUEUE_LENGTH);
@@ -173,8 +168,15 @@ void queue_pop (queue_t * queue, task_t * task)
   sem_post (&queue->full_sem);
 }
 
+void queue_cancel (queue_t * queue)
+{
+  queue->closed = !0;
+  sem_post (&queue->full_sem);
+  sem_post (&queue->empty_sem);
+}
+
 int brute_iter (context_t * context, task_t * task,
-	    task_handler_t handler, struct crypt_data * data)
+            task_handler_t handler, struct crypt_data * data)
 {
   int i;
   int index[PSWD_LEN];
@@ -182,19 +184,19 @@ int brute_iter (context_t * context, task_t * task,
   while (!0)
     {
       if (handler (context, task, data))
-	{
-	  break;
-	}
+        {
+          break;
+        }
       for (i = task->to - 1;
-	   (i >= task->from) && (index[i] == context->alph_len - 1); i--)
-	{
-	  index[i] = 0;
-	  task->pswd[i] = context->alph[0];
-	}
+           (i >= task->from) && (index[i] == context->alph_len - 1); i--)
+        {
+          index[i] = 0;
+          task->pswd[i] = context->alph[0];
+        }
       if (i < task->from)
-	{
-	  break;
-	}
+        {
+          break;
+        }
       index[i]++;
       task->pswd[i] = context->alph[index[i]];
     }
@@ -202,7 +204,7 @@ int brute_iter (context_t * context, task_t * task,
 }
 
 int brute_rec (context_t * context, task_t * task, int pos,
-	       task_handler_t handler, struct crypt_data * data)
+               task_handler_t handler, struct crypt_data * data)
 {
   if (pos >= task->to)
     {
@@ -213,19 +215,19 @@ int brute_rec (context_t * context, task_t * task, int pos,
     {
       task->pswd[pos] = context->alph[i];
       if (brute_rec (context, task, pos + 1, handler, data))
-	return !0;
+        return !0;
     }
   return 0;
 }
 
 int brute_rec_wrapper (context_t * context, task_t * task,
-		       task_handler_t handler, struct crypt_data * data)
+                       task_handler_t handler, struct crypt_data * data)
 {
   return brute_rec (context, task, task->from, handler, data);
 }
 
 void brute_all(context_t * context, task_t * task,
-	       task_handler_t handler, struct crypt_data * data)
+               task_handler_t handler, struct crypt_data * data)
 {
   switch (context->brute_mode)
     {
@@ -244,32 +246,32 @@ int parse_args (context_t *context, int argc, char *argv[])
     {
       int current_getopt = getopt (argc, argv, "riomhsc");
       if (current_getopt < 0)
-	break;
+        break;
       switch (current_getopt)
-	{
-	case 'r' :
-	  context->brute_mode = BM_REC;
-	  break;
-	case 'i' :
-	  context->brute_mode = BM_ITER;
-	  break;
-	case 'm' :
-	  context->run_mode = RM_MULTI;
-	  break;
-	case 'o' :
-	  context->run_mode = RM_SINGLE;
-	  break;
-	case 's' :
-	  context->run_mode = RM_SERVER;
-	  break;
-	case 'c' :
-	  context->run_mode = RM_CLIENT;
-	  break;
-	case 'h' :
-	  return -1;
-	default :
-	  break;
-	}
+        {
+        case 'r' :
+          context->brute_mode = BM_REC;
+          break;
+        case 'i' :
+          context->brute_mode = BM_ITER;
+          break;
+        case 'm' :
+          context->run_mode = RM_MULTI;
+          break;
+        case 'o' :
+          context->run_mode = RM_SINGLE;
+          break;
+        case 's' :
+          context->run_mode = RM_SERVER;
+          break;
+        case 'c' :
+          context->run_mode = RM_CLIENT;
+          break;
+        case 'h' :
+          return -1;
+        default :
+          break;
+        }
     }
 
   if ((optind >= 0) && (optind < argc))
@@ -328,8 +330,8 @@ void consumer (context_t * context)
       task_t current_task;
       queue_pop (&context->queue, &current_task);
       if (current_task.to == -1) {
-	queue_push (&context->queue, &current_task);
-	return;
+        queue_push (&context->queue, &current_task);
+        return;
       }
       brute_all (context, &current_task, &check_pswd, &data);
     }
@@ -390,43 +392,43 @@ void mediator (med_context_t * context)
       task_t task;
       queue_pop (queue, &task);
       if (task.to == -1)
-	{
-	  return;
-	}
+        {
+          return;
+        }
       char task_string [1023];
       uint32_t size = sprintf (task_string, SEND_JOB_TMPL, task.pswd, 0, 0,
-			       hash, alph, task.from, task.to) + 1;
+                               hash, alph, task.from, task.to) + 1;
       if (write (fd, &size, sizeof (size)) < 0 ||
-	  write (fd, &task_string, size) < 0)
-	{
-	  fprintf (stderr, "Write error\n");
-	  queue_push (queue, &task);
-	  return;
-	}
+          write (fd, &task_string, size) < 0)
+        {
+          fprintf (stderr, "Write error\n");
+          queue_push (queue, &task);
+          return;
+        }
       uint32_t reply_size;
       if (read (fd, &reply_size, sizeof (uint32_t)) < 0)
-	{
-	  fprintf (stderr, "Read error\n");
-	  queue_push (queue, &task);
-	  return;
-	}
+        {
+          fprintf (stderr, "Read error\n");
+          queue_push (queue, &task);
+          return;
+        }
       char reply [reply_size];
       if (read (fd, reply, reply_size) < 0)
-	{
-	  fprintf (stderr, "Read error\n");
-	  queue_push (queue, &task);
-	  return;
-	}
+        {
+          fprintf (stderr, "Read error\n");
+          queue_push (queue, &task);
+          return;
+        }
       int result;
       int id, idx;
       char password [PSWD_LEN + 1];
       sscanf (reply, REPORT_RESULT_TMPL, password, &id, &idx, &result);
       if (result)
-	{
-	  memcpy (med_context.context->pswd, password, med_context.context->pswd_len);
-	  med_context.context->complete = !0;
-	  return;
-	}
+        {
+          memcpy (med_context.context->pswd, password, med_context.context->pswd_len);
+          med_context.context->complete = !0;
+          return;
+        }
     }
   
 }
@@ -443,28 +445,28 @@ void * mediator_wrapper (void * arg)
 
 void * accepter (void * arg)
 {
-  accepter_context_t accepter_context = *((accepter_context_t) arg);
-  pthread_mutex_unlock (&accepter_context.context_mutex);
+  accepter_context_t accepter_context = *((accepter_context_t *) arg);
+  pthread_mutex_unlock (accepter_context.context_mutex);
   int sock = accepter_context.sock;
   for (;;)
     {
       int fd = accept (sock, NULL, NULL);
       if (fd < 0)
-	{
-	  fprintf (stderr, "Accept error\n");
-	  return;
-	}
+        {
+          fprintf (stderr, "Accept error\n");
+          return (NULL);
+        }
 
       pthread_t mediator;
       med_context_t * med_context = malloc (sizeof (med_context_t));
-      med_context->context = context;
+      med_context->context = accepter_context.context;
       med_context->fd = fd;
-      med_context->closer_mutex = accepter_context.closer_mutex;
-      med_context->closer_cond = accepter_context.closer_cond;
+      med_context->close_mutex = accepter_context.close_mutex;
+      med_context->close_cond = accepter_context.close_cond;
       pthread_mutex_init (med_context->context_mutex, NULL);
       pthread_mutex_lock (med_context->context_mutex);
       pthread_create (&mediator, NULL, (void *) mediator, (void *) med_context);
-      pthread_mutex_lock (&med_context->context_mutex);
+      pthread_mutex_lock (med_context->context_mutex);
       free (med_context);
     }
 }
@@ -486,10 +488,6 @@ void serv_producer (context_t * context, int sock)
       fprintf (stderr, "Listen error\n");
       return;
     }
-  
-  queue_init (&context->queue);
-  pthread_t prod, accepter, closer;
-  pthread_create (&prod, NULL, (void *) producer, (void *) context);
 
   pthread_mutex_t close_mutex;
   pthread_mutex_init (&close_mutex, NULL);
@@ -498,17 +496,16 @@ void serv_producer (context_t * context, int sock)
 
   accepter_context_t *  accepter_context = malloc (sizeof (accepter_context_t));
   accepter_context->sock = sock;
-  accepter_context->close_mutex = close_mutex;
-  accepter_context->close_cond = close_cond;
-  pthread_mutex_init (accepter_context.context_mutex, NULL);
-  pthread_mutex_lock (accepter_context.context_mutex);
-  pthread_create (&accepter, NULL, accepter, accepter_context);
-  pthread_mutex_lock (accepter_context.context_mutex);
+  accepter_context->close_mutex = &close_mutex;
+  accepter_context->close_cond = &close_cond;
+  accepter_context->context = context;
+  pthread_mutex_init (accepter_context->context_mutex, NULL);
+  pthread_mutex_lock (accepter_context->context_mutex);
+  pthread_create (&accepter_thread, NULL, accepter, accepter_context);
+  pthread_mutex_lock (accepter_context->context_mutex);
   free (accepter_context);
 
   pthread_cond_wait (&close_cond, &close_mutex);
-  //Убить треды
-  
 }
 
 void server (context_t * context)
@@ -521,8 +518,17 @@ void server (context_t * context)
     }
 
   serv_producer (context, sock);
+  
   shutdown (sock, SHUT_RDWR);
   close (sock);
+}
+
+void server_wrapper(context_t * context)
+{
+  queue_init (&context->queue);
+  pthread_t prod;
+  pthread_create (&prod, NULL, (void *) producer, (void *) context);
+  server (context);
 }
 
 void cl_consumer (context_t * context, int fd)
@@ -542,27 +548,27 @@ void cl_consumer (context_t * context, int fd)
     {
       uint32_t size;
       if (read (fd, &size, sizeof (uint32_t)) < 0)
-	{
-	  fprintf (stderr, "Read error\n");
-	  return;
-	}
+        {
+          fprintf (stderr, "Read error\n");
+          return;
+        }
       char task_string [size];
       if (read (fd, task_string, size) < 0)
-	{
-	  fprintf (stderr, "Read error\n");
-	  return;
-	}
+        {
+          fprintf (stderr, "Read error\n");
+          return;
+        }
       task_t task;
       int id, idx;
       char hash [127];
       char alph [127];
       sscanf (task_string, SEND_JOB_TMPL, task.pswd, &id, &idx, hash,
-	      alph, &task.from, &task.to);
+              alph, &task.from, &task.to);
       context->alph = alph;
       context->hash = hash;
 
       struct crypt_data data = {
-	.initialized = 0,
+        .initialized = 0,
       };
       clear_pass (context, &task);
       brute_all (context, &task, &check_pswd, &data);
@@ -572,13 +578,13 @@ void cl_consumer (context_t * context, int fd)
       char reply [1023];
   
       uint32_t reply_size = sprintf (reply, REPORT_RESULT_TMPL,
-				     context->pswd, 0, 0, result) + 1;
+                                     context->pswd, 0, 0, result) + 1;
       if (write (fd, &reply_size, sizeof (reply_size)) < 0 ||
-	  write (fd, reply, reply_size) < 0)
-	{
-	  fprintf (stderr, "Write error\n");
-	  return;
-	}
+          write (fd, reply, reply_size) < 0)
+        {
+          fprintf (stderr, "Write error\n");
+          return;
+        }
     }
 }
 
@@ -626,7 +632,7 @@ int main (int argc, char *argv[])
       single_brute (&context);
       break;
     case RM_SERVER :
-      server (&context);
+      server_wrapper (&context);
       break;
     case RM_CLIENT :
       client (&context);
