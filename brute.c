@@ -26,37 +26,37 @@
 #define HELP_STRING "SYNTAX:\n        brute [ -i | -r ] [ -s | -m ] HASH\n"
 #define PORT (54321)
 
-#define SEND_JOB_TMPL "<msg>\n"			\
-  "<type>MT_SEND_JOB</type>\n"			\
-  "<args>\n"					\
-  "<job>\n"					\
-  "<job>\n"					\
+#define SEND_JOB_TMPL "<msg>\n"                        \
+  "<type>MT_SEND_JOB</type>\n"                        \
+  "<args>\n"                                        \
+  "<job>\n"                                        \
+  "<job>\n"                                        \
   "<password>%s </password>\n"                  \
-  "<id>%d</id>\n"				\
-  "<idx>%d</idx>\n"				\
-  "<hash>%s </hash>\n"				\
+  "<id>%d</id>\n"                                \
+  "<idx>%d</idx>\n"                                \
+  "<hash>%s </hash>\n"                                \
   "<alphabet>%s </alphabet>\n"                  \
-  "<from>%d</from>\n"			        \
-  "<to>%d</to>\n"				\
-  "</job>\n"					\
-  "</job>\n"					\
-  "</args>\n"					\
+  "<from>%d</from>\n"                                \
+  "<to>%d</to>\n"                                \
+  "</job>\n"                                        \
+  "</job>\n"                                        \
+  "</args>\n"                                        \
   "</msg>\n"
 
-#define REPORT_RESULT_TMPL "<msg>\n"		\
-  "<type>MT_REPORT_RESULTS</type>\n"		\
-  "<args>\n"					\
-  "<result>\n"					\
-  "<result>\n"					\
-  "<password>%s </passwdord>\n"			\
-  "<id>%d</id>\n"				\
-  "<idx>%d</idx>\n"				\
-  "<password_found>%d</password_found>\n"	\
-  "<mutex/>\n"					\
-  "</result>\n"					\
-  "</result>\n"					\
-  "</args>\n"					\
-  "</msg>\n"					\
+#define REPORT_RESULT_TMPL "<msg>\n"                \
+  "<type>MT_REPORT_RESULTS</type>\n"                \
+  "<args>\n"                                        \
+  "<result>\n"                                        \
+  "<result>\n"                                        \
+  "<password>%s </passwdord>\n"                        \
+  "<id>%d</id>\n"                                \
+  "<idx>%d</idx>\n"                                \
+  "<password_found>%d</password_found>\n"        \
+  "<mutex/>\n"                                        \
+  "</result>\n"                                        \
+  "</result>\n"                                        \
+  "</args>\n"                                        \
+  "</msg>\n"                                        \
 
 typedef char pswd_t[PSWD_LEN + 1];
 
@@ -89,13 +89,14 @@ typedef struct task_t
 typedef struct queue_t
 {
   task_t tasks[QUEUE_LENGTH];
+  int count;
   int tail;
   int head;
   int closed;
   pthread_mutex_t tail_mutex;
   pthread_mutex_t head_mutex;
-  sem_t full_sem;
-  sem_t empty_sem;
+  pthread_cond_t empty_cond;
+  pthread_cont_t full_cond;
 } queue_t;
 
 typedef struct context_t
@@ -134,6 +135,23 @@ typedef struct accepter_context_t
 
 typedef result_t (* task_handler_t)(context_t * context, task_t * task,
         struct crypt_data * data);
+        
+void ref (context_t* context)
+{
+  pthread_lock_mutex (&context->mutex);
+  context->tip++;
+  pthread_unlock_mutex ($context->mutex);
+}
+
+void unref (context_t* context)
+{
+  pthread_lock_mutex (&context->mutex);
+  if (0 == --context->tip)
+  {
+    pthread_cond_signal (&context->cond);
+  }
+  pthread_unlock_mutex (&context->mutex);
+}
 
 void clear_pass (context_t * context, task_t * task)
 {
@@ -142,64 +160,67 @@ void clear_pass (context_t * context, task_t * task)
 
 void queue_init (queue_t * queue)
 {
+  queue->count = 0;
   queue->closed = 0;
   queue->head = 0;
   queue->tail = 0;
-  sem_init (&queue->full_sem, 0, QUEUE_LENGTH);
-  sem_init (&queue->empty_sem, 0, 0);
-  pthread_mutex_init (&queue->tail_mutex, NULL);
-  pthread_mutex_init (&queue->head_mutex, NULL);
+  pthread_cond_init (&empty_cond, NULL);
+  pthread_cond_init (&full_cond, NULL);
+  pthread_mutex (&queue->mutex, NULL);
 }
 
 result_t queue_push (queue_t * queue, task_t * task)
 {
-  if (queue->closed)
-    {
-      return FAIL;
-    }
-  sem_wait (&queue->full_sem);
-  pthread_mutex_lock (&queue->tail_mutex);
-  queue->tasks[queue->tail] = *task;
-  if (++queue->tail == QUEUE_LENGTH)
-    {
-      queue->tail = 0;
-    }
-  pthread_mutex_unlock (&queue->tail_mutex);
-  sem_post (&queue->empty_sem);
-  if (queue->closed)
-    {
-      return FAIL;
-    }
-  return SUCCESS;
+  result_t status = FAIL;
+  pthread_mutex_lock (&queue->mutex);
+  while ((queue->count == sizeof (queue->tasks) / sizeof (queue->tasks[0])) &&
+    (!queue->closed))
+  {
+    pthread_cond_wait (&queue->full_cond, &queue->mutex);
+  }
+  if (!queue->closed)
+  {
+    queue->tasks[queue->tail] = *task;
+    if (++queue->tail == QUEUE_LENGTH)
+      {
+        queue->tail = 0;
+      }
+    ++queue->size;
+    pthread_cond_broadcast (&queue->empty_cond);
+    status = SUCCESS;
+  }
+  pthread_mutex_unlock (&queue->mutex);
+  return status;
 }
 
 result_t queue_pop (queue_t * queue, task_t * task)
 {
-  if (queue->closed)
+  result_t status = FAIL;
+  pthread_mutex_lock (&queue->mutex);
+  while ((queue->count == 0) && !queue->closed)
+  {
+    pthread_cond_wait (&queue->empty_cond, &queue->mutex);
+  }
+  if (!queue->closed)
     {
-      return FAIL;
+      *task = queue->tasks[queue->head];
+      if (++queue->head == QUEUE_LENGTH)
+        {
+          queue->head = 0;
+        }
+      --queue->size;
+      pthread_cond_broadcast (&queue->full_cond);
+      status = SUCCESS;
     }
-  sem_wait (&queue->empty_sem);
-  pthread_mutex_lock (&queue->head_mutex);
-  *task = queue->tasks[queue->head];
-  if (++queue->head == QUEUE_LENGTH)
-    {
-      queue->head = 0;
-    }
-  pthread_mutex_unlock (&queue->head_mutex);
-  sem_post (&queue->full_sem);
-  if (queue->closed)
-    {
-      return FAIL;
-    }
-  return SUCCESS;
+  pthread_mutex_unlock (&queue->mutex);
+  return status;
 }
 
 void queue_cancel (queue_t * queue)
 {
   queue->closed = !0;
-  sem_post (&queue->full_sem);
-  sem_post (&queue->empty_sem);
+  pthread_cond_broadcast (&queue->full_cond);
+  pthread_cond_broadcast (&queue->empty_cond);
 }
 
 int brute_iter (context_t * context, task_t * task,
@@ -236,13 +257,13 @@ int brute_rec (context_t * context, task_t * task, int pos,
   if (pos >= task->to)
     {
       if (handler (context, task, data) == FAIL)
-	{
-	  return !0;
-	}
+        {
+          return !0;
+        }
       else
-	{
-	  return 1;
-	}
+        {
+          return 1;
+        }
     }
   int i;
   for (i = 0; i < context->alph_len; i++)
@@ -342,13 +363,12 @@ result_t push_task (context_t * context, task_t * task, struct crypt_data * data
   task_t new_task = *task;
   new_task.from = 0;
   new_task.to = task->from;
+  ref (context);
   if (queue_push (&context->queue, &new_task) == FAIL)
     {
+      unref (context);
       return FAIL;
     }
-  pthread_lock_mutex (&context->mutex);
-  tip++;
-  pthread_unlock_mutex ($context->mutex);
 }
 
 void producer (context_t * context)
@@ -370,9 +390,9 @@ void consumer (context_t * context)
     {
       task_t current_task;
       if (queue_pop (&context->queue, &current_task) == FAIL)
-	{
-	  return;
-	}
+        {
+          return;
+        }
       brute_all (context, &current_task, &check_pswd, &data);
     }
 }
@@ -442,27 +462,27 @@ void mediator (med_context_t * context)
         {
           fprintf (stderr, "Write error\n");
           if (queue_push (queue, &task) == FAIL)
-	    {
-	      return;
-	    }
+            {
+              return;
+            }
         }
       uint32_t reply_size;
       if (read (fd, &reply_size, sizeof (uint32_t)) < 0)
         {
           fprintf (stderr, "Read error\n");
           if (queue_push (queue, &task) == FAIL)
-	    {
-	      return;
-	    }
+            {
+              return;
+            }
         }
       char reply [reply_size];
       if (read (fd, reply, reply_size) < 0)
         {
           fprintf (stderr, "Read error\n");
           if (queue_push (queue, &task) == FAIL)
-	    {
-	      return;
-	    }
+            {
+              return;
+            }
         }
       int result;
       int id, idx;
@@ -540,7 +560,7 @@ void serv_producer (context_t * context, int sock)
   pthread_cond_t close_cond;
   pthread_cond_init (&close_cond, NULL);
 
-  accepter_context_t *  accepter_context = malloc (sizeof (accepter_context_t));
+  accepter_context_t * accepter_context = malloc (sizeof (accepter_context_t));
   accepter_context->sock = sock;
   accepter_context->close_mutex = &close_mutex;
   accepter_context->close_cond = &close_cond;
@@ -621,7 +641,7 @@ void cl_consumer (context_t * context, int fd)
 
       int result = 0;
       if (context->complete == SUCCESS) {
-	result = 1;
+        result = 1;
       }
   
       char reply [1023];
