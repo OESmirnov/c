@@ -70,8 +70,8 @@ typedef enum run_mode_t
 {
   RM_MULTI,
   RM_SINGLE,
-  RM_SERVER,
-  RM_CLIENT,
+  RM_SERVER_SYNC,
+  RM_CLIENT_SYNC,
 } run_mode_t;
 
 typedef enum result_t
@@ -305,10 +305,10 @@ int parse_args (context_t *context, int argc, char *argv[])
           context->run_mode = RM_SINGLE;
           break;
         case 's' :
-          context->run_mode = RM_SERVER;
+          context->run_mode = RM_SERVER_SYNC;
           break;
         case 'c' :
-          context->run_mode = RM_CLIENT;
+          context->run_mode = RM_CLIENT_SYNC;
           break;
         case 'h' :
           return 0;
@@ -665,7 +665,7 @@ int main (int argc, char *argv[])
     .tip = 0
   };
   
-  if (!parse_args (&context, argc, argv) && context.run_mode != RM_CLIENT)
+  if (!parse_args (&context, argc, argv) && context.run_mode != RM_CLIENT_SYNC)
     {
       printf (HELP_STRING);
       return EXIT_FAILURE;
@@ -681,10 +681,10 @@ int main (int argc, char *argv[])
     case RM_SINGLE :
       single_brute (&context);
       break;
-    case RM_SERVER :
+    case RM_SERVER_SYNC :
       server_wrapper (&context);
       break;
-    case RM_CLIENT :
+    case RM_CLIENT_SYNC :
       client (&context);
       return EXIT_SUCCESS;
     default :
