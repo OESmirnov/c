@@ -127,7 +127,7 @@ typedef result_t (* task_handler_t)(context_t * context, task_t * task,
 void ref (context_t* context)
 {
   pthread_mutex_lock (&context->mutex);
-  context->tip++;
+  ++context->tip;
   pthread_mutex_unlock (&context->mutex);
 }
 
@@ -331,12 +331,13 @@ int parse_args (context_t *context, int argc, char *argv[])
 
 result_t check_pswd (context_t * context, task_t * task, struct crypt_data * data)
 {
-  printf ("%s\n", task->pswd);
+  //printf ("%s\n", task->pswd);
   if (strcmp (crypt_r (task->pswd, context->hash, data), context->hash) == 0)
     {
       memcpy (context->pswd, task->pswd, context->pswd_len + 1);
       context->complete = SUCCESS;
       queue_cancel (&context->queue);
+      pthread_cond_signal (&context->cond);
       return FAIL;
     }
   return SUCCESS;
@@ -376,9 +377,11 @@ void consumer (context_t * context)
       task_t current_task;
       if (queue_pop (&context->queue, &current_task) == FAIL)
         {
+	  //printf ("***\nCONSUMER MESSAGE: I came!\n***\n");
           return;
         }
       brute_all (context, &current_task, &check_pswd, &data);
+      unref (context);
     }
 }
 
@@ -408,10 +411,18 @@ void multi_brute (context_t * context)
       pthread_create (&threads[i], NULL, consumer_wrapper, context);
     }
   producer (context);
+
+  pthread_mutex_lock (&context->mutex);
+  //printf ("***\nSERVER MESSAGE: lil!\n***\n");
+  if (context->tip != 0 && !context->queue.closed)
+    {
+      pthread_cond_wait (&context->cond, &context->mutex);
+    }
+  pthread_mutex_unlock (&context->mutex);
+  //printf ("***\nSERVER MESSAGE: lool!\n***\n");
   queue_cancel (&context->queue);
   threads_join (threads, threads_count);
 }
-
 void single_brute (context_t * context)
 {
   struct crypt_data data = {
@@ -563,7 +574,7 @@ void server_wrapper (context_t * context)
   producer (context);
   
   pthread_mutex_lock (&context->mutex);
-  if (context->tip != 0)
+  if (context->tip != 0 && !context->queue.closed)
     {
       pthread_cond_wait (&context->cond, &context->mutex);
     }

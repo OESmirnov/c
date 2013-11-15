@@ -8,7 +8,7 @@ check() {
 		RES="${2} ${3} ${4}"
 	fi
 	HASH=$(htpasswd -nbd $1 $1)
-	PASS=$("${BRUTE_PATH}" -r -s "${HASH:5}")
+	PASS=$("${BRUTE_PATH}" -r -o "${HASH:5}")
 	echo "  ""${PASS}"
 	if [[ $RES = "${PASS}" ]]; then
 		return 0;
